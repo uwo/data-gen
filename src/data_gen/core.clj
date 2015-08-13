@@ -34,11 +34,10 @@
       [type :many]
       type)))
 
-(defn fake
+(defn fake-recur
   [entity-key entity-lookup]
   (let [schema (entity-key entity-lookup)]
-    (update-map-ks schema (partial gen-from-schema-val entity-lookup))
-    ))
+    (update-map-ks schema (partial gen-from-schema-val entity-lookup))))
 
 (defmethod gen-from-schema-val :default [_ [type] & [args]]
   (identity args))
@@ -75,8 +74,10 @@
 
 (defonce entity-lookup (process-schema files))
 
+(defn fakes
+  [entity-key n]
+  (let [bills (repeatedly n #(fake entity-key entity-lookup))]
+    (println (count bills))
+    (spit "bills.edn" (pr-str bills))))
 
-#_(fake :ti/Bill entity-lookup)
-
-
-
+#_(fakes :ti/Bill 5)
