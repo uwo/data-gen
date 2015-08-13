@@ -7,9 +7,7 @@
 
 (def directory (clojure.java.io/file "resources/schema"))
 
-(def files (filter 
-             (fn [f] (not (.isDirectory f)))
-             (file-seq directory)))
+(def files (remove #(.isDirectory %) (file-seq directory)))
 
 (defn aggregate-schema
   [m [_ entity-key _ _ definition]]
