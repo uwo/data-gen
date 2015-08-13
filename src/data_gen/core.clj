@@ -4,39 +4,23 @@
             [faker.name :as names]
             [clojure.data.generators :as generators]))
 
-(def bill-template
-  {:state [:keyword "docstring"]
-   :next-state [:keyword "docstring"]
-   :customer [:ref :one [:ti/ref-type :ti/Customer] "docstring"]
-   :carrier [:ref :one [:ti/ref-type :ti/Carrier] "docstring"]
-   :pro-number [:string "docstring"]
-   :direction [:string "docstring"]
-   :terms [:string "docstring"]
-   :pickup-date [:instant "docstring"]
-   :received-date [:instant "docstring"]
-   :freight-bill-date [:instant "docstring"]
-   :delivery-date [:instant "docstring"]
-   :freight-details [:ref :many [:ti/ref-type :ti/FreightDetail] "docstring"]
-   :references [:ref :many [:ti/ref-type :ti/Reference] "docstring"]
-   :charge-groups [:ref :many [:ti/ref-type :ti/BillCharges] "docstring"]
-   :mode [:string "docstring"]
-   :service-level [:string "docstring"]
-   :equipment-type [:string "docstring"]
-   :bill-flags [:keyword :many "docstring"]
-   :system-flags [:keyword :many "docstring"]
-   :duplicate-flags [:keyword :many "docstring"]
-   :total-miles [:double "docstring"]
-   :milage-source [:string "docstring"]
-   :mileage-type [:string "docstring"]
-   :average-class [:double "docstring"]
-   :total-cube [:double "docstring"]
-   :carrier-shipper [:ref :one [:ti/ref-type :ti/Location] "docstring" ]
-   :carrier-consignee [:ref :one [:ti/ref-type :ti/Location] "docstring"]
-   :audited-shipper [:ref :one [:ti/ref-type :ti/Location] "docstring" ]
-   :audited-consignee [:ref :one [:ti/ref-type :ti/Location] "docstring"]
-   :shipments [:ref :many [:ti/ref-type :ti/Shipment] "docstring"]
-   :accessorials [:ref :many [:ti/ref-type :ti/Accessorial] "docstring"]
-   :stops [:ref :many [:ti/ref-type :ti/BillStop] "docstring"]})
+(def directory (clojure.java.io/file "resources/schema"))
+
+(def files (filter 
+             (fn [f] (not (.isDirectory f)))
+             (file-seq directory)))
+
+(defn aggregate-schema
+  [m [_ entity-key _ _ definition]]
+  (assoc m entity-key definition))
+
+(defn process-schema
+  [files]
+  (let [merged-schema {}
+        lookups (for [f files
+                      :let [schema (read-string (slurp f))]]
+                  (reduce aggregate-schema {} schema))]
+    (into {} lookups)))
 
 (defn update-map-ks
   [m f]
@@ -45,12 +29,18 @@
       (assoc m k (f v))) {} m))
 
 (defmulti gen-from-schema-val
-  (fn [[type cardinality] & _] 
-    (if (identical? cardinality :many)
+  (fn dispatch [entity-lookup [type cardinality? & _]] 
+    (if (identical? cardinality? :many)
       [type :many]
       type)))
 
-(defmethod gen-from-schema-val :default [& [args]] 
+(defn fake
+  [entity-key entity-lookup]
+  (let [schema (entity-key entity-lookup)]
+    (update-map-ks schema (partial gen-from-schema-val entity-lookup))
+    ))
+
+(defmethod gen-from-schema-val :default [_ [type] & [args]]
   (identity args))
 
 (defmethod gen-from-schema-val :instant [& _] 
@@ -62,19 +52,31 @@
 (defmethod gen-from-schema-val :keyword [& _]
   (keyword (names/last-name)))
 
+(defmethod gen-from-schema-val :bigdec [& _]
+  (generators/float))
+
+(defmethod gen-from-schema-val :long [& _]
+  (generators/long))
+
+(defmethod gen-from-schema-val :double [& _]
+  (generators/double))
+
+(defmethod gen-from-schema-val :code [& _]
+  (generators/uuid))
+
 (defmethod gen-from-schema-val [:keyword :many] [& _]
   (vec (map keyword (repeatedly (rand-int 10) names/last-name))))
 
-#_(defmethod gen-from-schema-val :ref [_ _ [_ entity] _]
-  nil)
+(defmethod gen-from-schema-val :ref [entity-lookup [_ _ [_ entity-key] _]]
+  (fake entity-key entity-lookup))
 
-#_(defmethod gen-from-schema-val [:ref :many] [_ _ [_ entity] _]
-  nil)
+(defmethod gen-from-schema-val [:ref :many] [entity-lookup [_ _ [_ entity-key] _]]
+  [(fake entity-key entity-lookup)])
 
-(def fake-bill
-  (update-map-ks bill-template gen-from-schema-val))
+(defonce entity-lookup (process-schema files))
 
-#_(clojure.pprint/pprint fake-bill)
+
+#_(fake :ti/Bill entity-lookup)
 
 
 
