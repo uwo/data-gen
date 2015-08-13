@@ -2,6 +2,7 @@
   ;(:refer-clojure :exclude [name])
   (:require [faker.company :as company]
             [faker.name :as names]
+            [datomic.api :as d]
             [clojure.data.generators :as generators]))
 
 (def directory (clojure.java.io/file "resources/schema"))
@@ -67,16 +68,22 @@
   (vec (map keyword (repeatedly (rand-int 10) names/last-name))))
 
 (defmethod gen-from-schema-val :ref [entity-lookup [_ _ [_ entity-key] _]]
-  (fake entity-key entity-lookup))
+  (fake-recur entity-key entity-lookup))
 
 (defmethod gen-from-schema-val [:ref :many] [entity-lookup [_ _ [_ entity-key] _]]
-  [(fake entity-key entity-lookup)])
+  [(fake-recur entity-key entity-lookup)])
 
 (defonce entity-lookup (process-schema files))
 
+(defn add-id
+  [m]
+  (assoc m :db/id (d/tempid :db.part/user)))
+
 (defn fakes
   [entity-key n]
-  (let [bills (vec (repeatedly n #(fake entity-key entity-lookup)))]
+  (let [bills (into []
+                    (map add-id)
+                    (repeatedly n #(fake-recur entity-key entity-lookup)))]
     (spit "bills.edn" (pr-str bills))))
 
 #_(fakes :ti/Bill 5)
