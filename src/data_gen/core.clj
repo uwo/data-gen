@@ -76,8 +76,7 @@
 
 (defn fakes
   [entity-key n]
-  (let [bills (repeatedly n #(fake entity-key entity-lookup))]
-    (println (count bills))
+  (let [bills (vec (repeatedly n #(fake entity-key entity-lookup)))]
     (spit "bills.edn" (pr-str bills))))
 
 #_(fakes :ti/Bill 5)
