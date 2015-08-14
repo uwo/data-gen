@@ -28,49 +28,57 @@
     (fn [m k v]
       (assoc m k (f v))) {} m))
 
-(defmulti gen-from-schema-val
-  (fn dispatch [entity-lookup [type cardinality? & _]] 
+(defmulti gen-from-schema-type
+  (fn dispatch [schema-lookup [type cardinality? & _]]
     (if (identical? cardinality? :many)
       [type :many]
       type)))
 
-(defn fake-recur
-  [entity-key entity-lookup]
-  (let [schema (entity-key entity-lookup)]
-    (update-vals schema (partial gen-from-schema-val entity-lookup))))
+(defn fake
+  [entity-key schema-lookup]
+  (let [schema (entity-key schema-lookup)]
+    (update-vals schema (partial gen-from-schema-type schema-lookup))))
 
-(defmethod gen-from-schema-val :default [_ [type] & [args]]
+
+
+
+
+(defmethod gen-from-schema-type :default [_ [type] & [args]]
   (identity args))
 
-(defmethod gen-from-schema-val :instant [& _] 
+(defmethod gen-from-schema-type :instant [& _]
   (generators/date))
 
-(defmethod gen-from-schema-val :string [& _]
+(defmethod gen-from-schema-type :string [& _]
   (company/bs))
 
-(defmethod gen-from-schema-val :keyword [& _]
+(defmethod gen-from-schema-type :keyword [& _]
   (keyword (names/last-name)))
 
-(defmethod gen-from-schema-val :bigdec [& _]
+(defmethod gen-from-schema-type :bigdec [& _]
   (generators/float))
 
-(defmethod gen-from-schema-val :long [& _]
+(defmethod gen-from-schema-type :long [& _]
   (generators/long))
 
-(defmethod gen-from-schema-val :double [& _]
+(defmethod gen-from-schema-type :double [& _]
   (generators/double))
 
-(defmethod gen-from-schema-val :code [& _]
+(defmethod gen-from-schema-type :code [& _]
   (generators/uuid))
 
-(defmethod gen-from-schema-val [:keyword :many] [& _]
+(defmethod gen-from-schema-type [:keyword :many] [& _]
   (vec (map keyword (repeatedly (rand-int 10) names/last-name))))
 
-(defmethod gen-from-schema-val :ref [entity-lookup [_ _ [_ entity-key] _]]
-  (fake-recur entity-key entity-lookup))
+(defmethod gen-from-schema-type :ref [schema-lookup [_ _ [_ entity-key] _]]
+  nil
+  ;(fake entity-key schema-lookup)
+  )
 
-(defmethod gen-from-schema-val [:ref :many] [entity-lookup [_ _ [_ entity-key] _]]
-  [(fake-recur entity-key entity-lookup)])
+(defmethod gen-from-schema-type [:ref :many] [schema-lookup [_ _ [_ entity-key] _]]
+  nil
+  ;[(fake entity-key schema-lookup)]
+  )
 
 (defn ns-attr
   [entity-key attr]
@@ -94,18 +102,46 @@
     {}
     lookup))
 
-(defonce entity-lookup (ns-entity-keys (process-schema files)))
+(defonce schema-lookup (ns-entity-keys (process-schema files)))
 
 (defn add-id
   [m]
   (assoc m :db/id (d/tempid :db.part/user)))
 
+(defn remove-nil-keys
+  [m]
+  (reduce-kv
+    (fn [m k v]
+      (if (nil? v)
+        m
+        (assoc m k v)))
+    {}
+    m))
+
+(defn use-real-states
+  [m]
+  (let [states [:init :keying :audit :invoice :invoiced]
+        transitions {:init [:keying]
+                     :keying [:audit :invoice]
+                     :audit [:invoice]
+                     :invoice [:invoiced]
+                     :invoiced [:done]}
+        state (rand-nth states)
+        next-state (rand-nth (state transitions))]
+    (-> m
+        (assoc :ti.bill/state state)
+        (assoc :ti.bill/next-state next-state))))
+
 (defn fakes
   [entity-key n]
   (let [bills (into []
-                    (map add-id)
-                    (repeatedly n #(fake-recur entity-key entity-lookup)))]
+                    (comp
+                      (map add-id)
+                      (map use-real-states)
+                      (map remove-nil-keys))
+                    (repeatedly n #(fake entity-key entity-lookup)))]
     (spit "bills.edn" (pr-str bills))))
+
 
 
 #_(fakes :ti/Bill 5)
