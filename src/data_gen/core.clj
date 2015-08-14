@@ -3,6 +3,7 @@
   (:require [faker.company :as company]
             [faker.name :as names]
             [datomic.api :as d]
+            [clojure.string :as s]
             [clojure.data.generators :as generators]))
 
 (def directory (clojure.java.io/file "resources/schema"))
@@ -21,7 +22,7 @@
                   (reduce aggregate-schema {} schema))]
     (into {} lookups)))
 
-(defn update-map-ks
+(defn update-vals
   [m f]
   (reduce-kv
     (fn [m k v]
@@ -36,7 +37,7 @@
 (defn fake-recur
   [entity-key entity-lookup]
   (let [schema (entity-key entity-lookup)]
-    (update-map-ks schema (partial gen-from-schema-val entity-lookup))))
+    (update-vals schema (partial gen-from-schema-val entity-lookup))))
 
 (defmethod gen-from-schema-val :default [_ [type] & [args]]
   (identity args))
@@ -71,7 +72,29 @@
 (defmethod gen-from-schema-val [:ref :many] [entity-lookup [_ _ [_ entity-key] _]]
   [(fake-recur entity-key entity-lookup)])
 
-(defonce entity-lookup (process-schema files))
+(defn ns-attr
+  [entity-key attr]
+  (let [ns (s/join "." (map s/lower-case ((juxt namespace name) entity-key)))]
+    (keyword ns (name attr))))
+
+;e.g.
+#_(ns-attr :ti/Bill :service-level)
+
+(defn update-keys
+  "Takes a function that is given the current key, instead of a key map."
+  [m f]
+  (reduce-kv (fn [m k v] (assoc m (f k) v)) {} m))
+
+(defn ns-entity-keys
+  [lookup]
+  (reduce-kv
+    (fn [m entity-key definition]
+      (let [new-definition (update-keys definition (partial ns-attr entity-key))]
+        (assoc m entity-key new-definition)))
+    {}
+    lookup))
+
+(defonce entity-lookup (ns-entity-keys (process-schema files)))
 
 (defn add-id
   [m]
@@ -83,5 +106,6 @@
                     (map add-id)
                     (repeatedly n #(fake-recur entity-key entity-lookup)))]
     (spit "bills.edn" (pr-str bills))))
+
 
 #_(fakes :ti/Bill 5)
