@@ -4,15 +4,30 @@
             [faker.name :as names]
             [datomic.api :as d]
             [clojure.string :as s]
+            [clojure.pprint :refer [pprint]]
             [clojure.data.generators :as generators]))
 
 (def directory (clojure.java.io/file "resources/schema"))
 
 (def files (remove #(.isDirectory %) (file-seq directory)))
 
+(defn dasherize
+  [word]
+  (-> word
+      (s/replace (re-pattern "([A-Z][a-z]+)")
+                 (fn [[match c]]
+                   (if c (str "-" (s/lower-case c)) "")))
+      (s/replace (re-pattern "([A-Z]+)") "-$1")
+      (s/replace (re-pattern "[-_\\s]+") "-")
+      (s/replace (re-pattern "^-") "")))
+
 (defn aggregate-schema
-  [m [_ entity-key _ _ definition]]
-  (assoc m entity-key definition))
+  "Note that this will merge inherited definitions, however those definitions must have
+  already been defined in the schema."
+  [m [_ entity-key inherited-types _ definition]]
+  (let [inherited-definitions (keep identity (for [t inherited-types] (t m)))
+        definition (into definition inherited-definitions)]
+    (assoc m entity-key definition)))
 
 (defn process-schema
   [files]
@@ -21,6 +36,32 @@
                       :let [schema (read-string (slurp f))]]
                   (reduce aggregate-schema {} schema))]
     (into {} lookups)))
+
+(defn ns-attr
+  [entity-key attr]
+  (let [ns (s/join "." (map s/lower-case ((juxt namespace
+                                                (comp dasherize name)) entity-key)))]
+    (keyword ns (name attr))))
+
+;e.g.
+#_(ns-attr :ti/FreightBill :service-level)
+#_(dasherize (name :ti/FreightBill))
+
+(defn update-keys
+  "Takes a function that is given the current key, instead of a key map."
+  [m f]
+  (reduce-kv (fn [m k v] (assoc m (f k) v)) {} m))
+
+(defn ns-entity-keys
+  [lookup]
+  (reduce-kv
+    (fn [m entity-key definition]
+      (let [new-definition (update-keys definition (partial ns-attr entity-key))]
+        (assoc m entity-key new-definition)))
+    {}
+    lookup))
+
+(def schema-lookup (ns-entity-keys (process-schema files)))
 
 (defn update-vals
   [m f]
@@ -38,10 +79,6 @@
   [entity-key schema-lookup]
   (let [schema (entity-key schema-lookup)]
     (update-vals schema (partial gen-from-schema-type schema-lookup))))
-
-
-
-
 
 (defmethod gen-from-schema-type :default [_ [type] & [args]]
   (identity args))
@@ -97,30 +134,6 @@
   ;           #(gen-ref schema-lookup entity-key)))
   )
 
-(defn ns-attr
-  [entity-key attr]
-  (let [ns (s/join "." (map s/lower-case ((juxt namespace name) entity-key)))]
-    (keyword ns (name attr))))
-
-;e.g.
-#_(ns-attr :ti/Bill :service-level)
-
-(defn update-keys
-  "Takes a function that is given the current key, instead of a key map."
-  [m f]
-  (reduce-kv (fn [m k v] (assoc m (f k) v)) {} m))
-
-(defn ns-entity-keys
-  [lookup]
-  (reduce-kv
-    (fn [m entity-key definition]
-      (let [new-definition (update-keys definition (partial ns-attr entity-key))]
-        (assoc m entity-key new-definition)))
-    {}
-    lookup))
-
-(defonce schema-lookup (ns-entity-keys (process-schema files)))
-
 (defn add-id
   [m]
   (assoc m :db/id (d/tempid :db.part/user)))
@@ -146,8 +159,13 @@
         state (rand-nth states)
         next-state (rand-nth (state transitions))]
     (-> m
-        (assoc :ti.bill/state state)
-        (assoc :ti.bill/next-state next-state))))
+        (assoc :ti.freight-bill/state state)
+        (assoc :ti.freight-bill/next-state next-state))))
+
+(defn filename
+  "note naive pluralization"
+  [entity-key]
+  (str (s/lower-case (dasherize (name entity-key))) "s.edn"))
 
 (defn fakes
   [entity-key n]
@@ -159,9 +177,14 @@
                       (map remove-nil-keys))
                     (repeatedly n #(fake entity-key schema-lookup)))
         all-fakes (vec (concat bills @entities))]
-    (spit "bills.edn" (pr-str all-fakes))
-    (clojure.pprint/pprint (read-string (slurp "bills.edn")))))
+    (spit (filename entity-key) (pr-str all-fakes))))
+
+#_(fakes :ti/FreightBill 1)
+
+(defn check
+  [entity-key]
+  (pprint (read-string (slurp (filename entity-key)))))
+
+#_(check :ti/FreightBill)
 
 
-
-#_(fakes :ti/FreightBill 5)
