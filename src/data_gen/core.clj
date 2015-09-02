@@ -67,17 +67,34 @@
 (defmethod gen-from-schema-type :code [& _]
   (generators/uuid))
 
+(defmethod gen-from-schema-type :enum [_ [type [_ enum-vals]]]
+  (rand-nth enum-vals))
+
+(defmethod gen-from-schema-type [:enum :many] [_ [type _ [_ enum-vals]]]
+  (vec (repeatedly (rand-int (count enum-vals)) #(rand-nth enum-vals))))
+
+(def entities (atom []))
+
 (defmethod gen-from-schema-type [:keyword :many] [& _]
   (vec (map keyword (repeatedly (rand-int 10) names/last-name))))
 
+(defn gen-ref
+  [schema-lookup entity-key]
+  (let [tempid (d/tempid :db.part/user)
+        entity (assoc (fake entity-key schema-lookup) :db/id tempid)]
+    (swap! entities conj entity)
+    tempid))
+
 (defmethod gen-from-schema-type :ref [schema-lookup [_ _ [_ entity-key] _]]
   nil
-  ;(fake entity-key schema-lookup)
+  ;(gen-ref schema-lookup entity-key)
   )
 
 (defmethod gen-from-schema-type [:ref :many] [schema-lookup [_ _ [_ entity-key] _]]
   nil
-  ;[(fake entity-key schema-lookup)]
+  ;(into [] (repeatedly
+  ;           (inc (rand-int 3))
+  ;           #(gen-ref schema-lookup entity-key)))
   )
 
 (defn ns-attr
@@ -134,14 +151,17 @@
 
 (defn fakes
   [entity-key n]
-  (let [bills (into []
+  (let [_ (reset! entities [])
+        bills (into []
                     (comp
                       (map add-id)
                       (map use-real-states)
                       (map remove-nil-keys))
-                    (repeatedly n #(fake entity-key entity-lookup)))]
-    (spit "bills.edn" (pr-str bills))))
+                    (repeatedly n #(fake entity-key schema-lookup)))
+        all-fakes (vec (concat bills @entities))]
+    (spit "bills.edn" (pr-str all-fakes))
+    (clojure.pprint/pprint (read-string (slurp "bills.edn")))))
 
 
 
-#_(fakes :ti/Bill 5)
+#_(fakes :ti/FreightBill 5)
