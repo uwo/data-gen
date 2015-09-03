@@ -21,22 +21,6 @@
       (s/replace (re-pattern "[-_\\s]+") "-")
       (s/replace (re-pattern "^-") "")))
 
-(defn aggregate-schema
-  "Note that this will merge inherited definitions, however those definitions must have
-  already been defined in the schema."
-  [m [_ entity-key inherited-types _ definition]]
-  (let [inherited-definitions (keep identity (for [t inherited-types] (t m)))
-        definition (into definition inherited-definitions)]
-    (assoc m entity-key definition)))
-
-(defn process-schema
-  [files]
-  (let [merged-schema {}
-        lookups (for [f files
-                      :let [schema (read-string (slurp f))]]
-                  (reduce aggregate-schema {} schema))]
-    (into {} lookups)))
-
 (defn ns-attr
   [entity-key attr]
   (let [ns (s/join "." (map s/lower-case ((juxt namespace
@@ -61,7 +45,32 @@
     {}
     lookup))
 
-(def schema-lookup (ns-entity-keys (process-schema files)))
+(defn namespace-attrs
+  "namespaces all the keys in `m` with `ns`"
+  [[ns m]]
+  (update-keys m (partial ns-attr ns)))
+
+(defn aggregate-schema
+  "Note that this will merge inherited definitions, however those definitions must have
+  already been defined in the schema."
+  [m [_ entity-key inherited-types _ definition]]
+  (let [inherited-definitions (for [t inherited-types
+                                    :let [d (t m)]
+                                    :when d]
+                                [t d])
+        defs (into [[entity-key definition]] inherited-definitions)
+        definition (into {} (map namespace-attrs) defs)]
+    (assoc m entity-key definition)))
+
+(defn process-schema
+  [files]
+  (let [merged-schema {}
+        lookups (for [f files
+                      :let [schema (read-string (slurp f))]]
+                  (reduce aggregate-schema {} schema))]
+    (into {} lookups)))
+
+(def schema-lookup (process-schema files))
 
 (defn update-vals
   [m f]
