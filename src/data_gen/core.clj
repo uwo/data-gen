@@ -36,15 +36,6 @@
   [m f]
   (reduce-kv (fn [m k v] (assoc m (f k) v)) {} m))
 
-(defn ns-entity-keys
-  [lookup]
-  (reduce-kv
-    (fn [m entity-key definition]
-      (let [new-definition (update-keys definition (partial ns-attr entity-key))]
-        (assoc m entity-key new-definition)))
-    {}
-    lookup))
-
 (defn namespace-attrs
   "namespaces all the keys in `m` with `ns`"
   [[ns m]]
